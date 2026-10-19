@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f7d9a8"/>
+      <stop offset="42%" stop-color="#f3b56c"/>
+      <stop offset="70%" stop-color="#e58a4a"/>
+      <stop offset="100%" stop-color="#c96a3c"/>
+    </linearGradient>
+    <linearGradient id="water" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4aa7b8"/>
+      <stop offset="55%" stop-color="#2d7f8a"/>
+      <stop offset="100%" stop-color="#1a5c66"/>
+    </linearGradient>
+  </defs>
+  <rect width="1600" height="900" fill="url(#sky)"/>
+  <circle cx="1180" cy="210" r="70" fill="#ffe1a3" opacity="0.95"/>
+  <ellipse cx="240" cy="430" rx="220" ry="70" fill="#0f3d2e"/>
+  <ellipse cx="430" cy="450" rx="180" ry="80" fill="#14523a"/>
+  <rect y="500" width="1600" height="400" fill="url(#water)"/>
+  <path d="M0 500 C220 470 380 540 560 510 C760 476 980 540 1180 508 C1360 482 1500 520 1600 500 L1600 900 L0 900 Z" fill="#1f6f7c" opacity="0.35"/>
+  <g transform="translate(980,540)">
+    <ellipse cx="70" cy="58" rx="78" ry="14" fill="#0b3a44" opacity="0.35"/>
+    <path d="M8 42 C30 70 120 72 148 40 L138 28 C110 46 40 46 18 28 Z" fill="#8B3A1A"/>
+    <path d="M18 28 L70 8 L138 28" fill="#D95A2B"/>
+    <rect x="66" y="-18" width="6" height="40" fill="#3a2418"/>
+    <path d="M72 -16 L118 8 L72 10 Z" fill="#F2E6C9"/>
+  </g>
+  <g transform="translate(1140,555)">
+    <ellipse cx="62" cy="50" rx="70" ry="12" fill="#0b3a44" opacity="0.3"/>
+    <path d="M6 36 C24 62 108 64 128 34 L118 24 C96 40 36 40 16 24 Z" fill="#1F4E79"/>
+    <path d="M16 24 L62 6 L118 24" fill="#E8B84A"/>
+    <rect x="58" y="-12" width="5" height="32" fill="#3a2418"/>
+  </g>
+  <g transform="translate(1288,548)">
+    <ellipse cx="58" cy="52" rx="64" ry="12" fill="#0b3a44" opacity="0.3"/>
+    <path d="M4 38 C22 64 98 66 118 36 L108 24 C88 40 34 40 14 24 Z" fill="#2E7D4F"/>
+    <path d="M14 24 L58 8 L108 24" fill="#C0392B"/>
+  </g>
+  <g transform="translate(860,560)">
+    <path d="M4 34 C20 58 86 60 104 32 L96 22 C78 36 30 36 12 22 Z" fill="#6C3483"/>
+    <path d="M12 22 L52 8 L96 22" fill="#F4D03F"/>
+  </g>
+  <g fill="#0f3d2e">
+    <path d="M40 430 C70 300 110 300 130 430"/>
+    <path d="M150 440 C180 280 230 280 250 440"/>
+    <path d="M280 450 C310 310 350 310 370 450"/>
+  </g>
+  <g fill="#14523a">
+    <ellipse cx="90" cy="250" rx="28" ry="50"/>
+    <ellipse cx="200" cy="230" rx="34" ry="62"/>
+    <ellipse cx="320" cy="250" rx="30" ry="54"/>
+  </g>
+</svg>
