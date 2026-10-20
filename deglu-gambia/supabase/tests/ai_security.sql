@@ -1,0 +1,94 @@
+-- Owner-run integration tests; all fixture users, records and review changes roll back.
+begin;
+do $$
+declare
+  inst_a uuid;inst_b uuid;area_a uuid;area_near uuid;area_far uuid;
+  staff_a uuid:=gen_random_uuid();staff_b uuid:=gen_random_uuid();citizen uuid:=gen_random_uuid();admin_id uuid:=gen_random_uuid();
+  cat text:='ai_'||substr(replace(gen_random_uuid()::text,'-',''),1,20);
+  source_ref text;other_ref text;source_id uuid;same_id uuid;near_id uuid;far_id uuid;other_id uuid;old_id uuid;
+  v_ref text;v_json jsonb;v_analysis jsonb;v_assessment bigint;v_before bigint;v_count int;
+begin
+  insert into public.institutions(name) values('AI isolation A '||staff_a) returning id into inst_a;
+  insert into public.institutions(name) values('AI isolation B '||staff_a) returning id into inst_b;
+  insert into public.service_areas(name) values('AI area '||staff_a) returning id into area_a;
+  insert into public.service_areas(name) values('AI near '||staff_a) returning id into area_near;
+  insert into public.service_areas(name) values('AI far '||staff_a) returning id into area_far;
+  insert into public.report_categories(slug,label,institution_id) values(cat,'AI fixture water',inst_a);
+  insert into auth.users(id,raw_user_meta_data) values(staff_a,'{}'),(staff_b,'{}'),(citizen,'{}'),(admin_id,'{}');
+  update public.profiles set role='staff',institution_id=inst_a where id=staff_a;
+  update public.profiles set role='staff',institution_id=inst_b where id=staff_b;
+  update public.profiles set role='admin' where id=admin_id;
+  source_ref:=public.submit_report(gen_random_uuid(),'Blocked drain at market','Drain blocked beside the market for several weeks.',cat,area_a,null,13.45,-16.58);
+  select id into source_id from public.reports where reference=source_ref;
+  v_ref:=public.submit_report(gen_random_uuid(),'Blocked drain at market','Drain blocked beside the market for several weeks.',cat,area_a);
+  select id into same_id from public.reports where reference=v_ref;
+  v_ref:=public.submit_report(gen_random_uuid(),'Blocked drain at market','Drain blocked beside the market for several weeks.',cat,area_near,null,13.46,-16.58);
+  select id into near_id from public.reports where reference=v_ref;
+  v_ref:=public.submit_report(gen_random_uuid(),'Blocked drain at market','Drain blocked beside the market for several weeks.',cat,area_far,null,13.31,-14.21);
+  select id into far_id from public.reports where reference=v_ref;
+  update public.reports set status='resolved',resolution_note='Fixture resolution',resolved_at=now() where id=far_id;
+  other_ref:=public.submit_report(gen_random_uuid(),'Blocked drain at market','Drain blocked beside the market for several weeks.',cat,area_a);
+  select id into other_id from public.reports where reference=other_ref;
+  update public.reports set institution_id=inst_b where id=other_id;
+  v_ref:=public.submit_report(gen_random_uuid(),'Blocked drain at market','Drain blocked beside the market for several weeks.',cat,area_a);
+  select id into old_id from public.reports where reference=v_ref;
+  update public.reports set created_at=now()-interval '100 days' where id=old_id;
+  select count(*) into v_before from public.reports;
+  v_analysis:=jsonb_build_object('category',cat,'category_confidence',0.8,'summary','Drain blocked beside market.','missing_details',jsonb_build_array('How long?'),'priority','high','priority_reasons',jsonb_build_array('Open drain'));
+
+  set local role anon;
+  begin perform public.staff_duplicate_candidates(source_id);raise exception 'FAIL: anon duplicate access';exception when insufficient_privilege then null;end;
+  begin perform public.institution_report_insights(inst_a,30);raise exception 'FAIL: anon insight access';exception when insufficient_privilege then null;end;
+  begin perform public.record_ai_assessment(source_id,v_analysis,'test-model','ai');raise exception 'FAIL: anon assessment write';exception when insufficient_privilege then null;end;
+  reset role;
+  perform set_config('request.jwt.claim.sub',citizen::text,true);set local role authenticated;
+  begin perform public.staff_duplicate_candidates(source_id);raise exception 'FAIL: citizen duplicate access';exception when insufficient_privilege then null;end;
+  begin perform public.institution_report_insights(inst_a,30);raise exception 'FAIL: citizen insight access';exception when insufficient_privilege then null;end;
+  begin perform public.record_ai_assessment(source_id,v_analysis,'test-model','ai');raise exception 'FAIL: citizen assessment write';exception when insufficient_privilege then null;end;
+  reset role;
+
+  perform set_config('request.jwt.claim.sub',staff_a::text,true);set local role authenticated;
+  select count(*) into v_count from public.staff_duplicate_candidates(source_id);
+  if v_count<>2 then raise exception 'FAIL: expected same-locality and nearby matches, got %',v_count;end if;
+  if exists(select 1 from public.staff_duplicate_candidates(source_id) where report_id not in (same_id,near_id)) then raise exception 'FAIL: foreign, distant or old candidate leaked';end if;
+  begin perform public.staff_duplicate_candidates(other_id);raise exception 'FAIL: foreign source accessible';exception when insufficient_privilege then null;end;
+  begin perform public.find_duplicate_candidates(source_id);raise exception 'FAIL: raw service-only search granted to staff';exception when insufficient_privilege then null;end;
+  v_json:=public.institution_report_insights(inst_a,30);
+  if (v_json->>'total')::int<>4 or (v_json->>'unresolved')::int<>3 then raise exception 'FAIL: inaccurate insight counts %',v_json;end if;
+  if v_json::text like '%Blocked%' or v_json::text like '%reporter_id%' or v_json::text like '%description%' then raise exception 'FAIL: private text in insights';end if;
+  begin perform public.institution_report_insights(inst_b,30);raise exception 'FAIL: cross-institution insights';exception when insufficient_privilege then null;end;
+  begin perform public.institution_report_insights(inst_a,91);raise exception 'FAIL: unbounded insight window';exception when sqlstate '22023' then null;end;
+  select count(*) into v_count from public.record_ai_assessment(source_id,v_analysis,'test-model','ai');
+  if v_count<>4 then raise exception 'FAIL: assessment components not saved atomically';end if;
+  select id into v_assessment from public.ai_assessments where report_id=source_id and kind='priority' order by id desc limit 1;
+  perform public.review_ai_assessment(v_assessment,'accepted');
+  if (select status from public.ai_assessments where id=v_assessment)<>'accepted' then raise exception 'FAIL: priority confirmation not saved';end if;
+  if exists(select 1 from public.ai_assessments where report_id=source_id and kind='duplicate' and (suggestion::text like '%Blocked%' or suggestion::text like '%DG-%')) then raise exception 'FAIL: private candidate titles/references persisted';end if;
+  begin perform public.record_ai_assessment(source_id,jsonb_set(v_analysis,'{priority}','"catastrophic"'),'test-model','ai');raise exception 'FAIL: invalid priority accepted';exception when sqlstate '22023' then null;end;
+  if (select status from public.reports where id=source_id)<>'submitted' then raise exception 'FAIL: AI changed report status';end if;
+  reset role;
+
+  perform set_config('request.jwt.claim.sub',staff_b::text,true);set local role authenticated;
+  if exists(select 1 from public.ai_assessments where report_id=source_id) then raise exception 'FAIL: cross-institution assessment read';end if;
+  begin perform public.record_ai_assessment(source_id,v_analysis,'test-model','ai');raise exception 'FAIL: cross-institution assessment write';exception when insufficient_privilege then null;end;
+  v_json:=public.institution_report_insights(null,30);if (v_json->>'total')::int<>1 then raise exception 'FAIL: default staff insight scope';end if;
+  reset role;
+
+  perform set_config('request.jwt.claim.sub','',true);
+  update public.reports set institution_id=inst_b where id=same_id;
+  perform set_config('request.jwt.claim.sub',staff_a::text,true);set local role authenticated;
+  if exists(select 1 from public.staff_duplicate_candidates(source_id) where report_id=same_id) then raise exception 'FAIL: reassigned candidate leaked';end if;
+  reset role;
+  perform set_config('request.jwt.claim.sub','',true);update public.profiles set is_active=false where id=staff_a;
+  perform set_config('request.jwt.claim.sub',staff_a::text,true);set local role authenticated;
+  begin perform public.institution_report_insights(null,30);raise exception 'FAIL: inactive staff insights';exception when insufficient_privilege then null;end;
+  begin perform public.record_ai_assessment(source_id,v_analysis,'test-model','ai');raise exception 'FAIL: inactive staff assessment';exception when insufficient_privilege then null;end;
+  reset role;
+  perform set_config('request.jwt.claim.sub',admin_id::text,true);set local role authenticated;
+  v_json:=public.institution_report_insights(null,30);if (v_json->>'total')::int<5 then raise exception 'FAIL: admin insight scope';end if;
+  reset role;
+  perform set_config('request.jwt.claim.sub','',true);
+  if (select count(*) from public.reports)<>v_before then raise exception 'FAIL: AI deleted or merged reports';end if;
+  raise notice 'All connected-AI security checks passed';
+end $$;
+rollback;
