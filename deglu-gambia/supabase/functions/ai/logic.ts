@@ -66,6 +66,7 @@ export function parseJson(text: string): unknown {
   return null;
 }
 
+const validStringList = (v:unknown,n:number,len:number):v is string[] => Array.isArray(v) && v.length<=n && v.every(x=>typeof x==='string' && x.trim().length>0 && x.length<=len);
 const strList = (v: unknown, n: number, len: number): string[] =>
   Array.isArray(v) ? v.map((x) => clip(x, len)).filter(Boolean).slice(0, n) : [];
 
@@ -76,8 +77,12 @@ export interface Analysis {
 
 /** Never trust model output: unknown categories/priorities are dropped, strings clipped. */
 export function validateAnalysis(raw: unknown, allowedSlugs: string[]): Analysis | null {
-  if (!raw || typeof raw !== 'object') return null;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const o = raw as Record<string, unknown>;
+  if (!(o.category === null || (typeof o.category === 'string' && allowedSlugs.includes(o.category)))
+    || !(o.category_confidence === null || (typeof o.category_confidence === 'number' && Number.isFinite(o.category_confidence) && o.category_confidence >= 0 && o.category_confidence <= 1))
+    || typeof o.summary !== 'string' || !o.summary.trim() || o.summary.length > 240
+    || !PRIORITIES.includes(o.priority as Priority) || !validStringList(o.missing_details,4,140) || !validStringList(o.priority_reasons,3,140)) return null;
   const category = typeof o.category === 'string' && allowedSlugs.includes(o.category) ? o.category : null;
   const conf = typeof o.category_confidence === 'number' && o.category_confidence >= 0 && o.category_confidence <= 1
     ? Math.round(o.category_confidence * 1000) / 1000 : null;
@@ -94,6 +99,7 @@ export interface Organised { title: string; description: string; missing_details
 export function validateOrganised(raw: unknown): Organised | null {
   if (!raw || typeof raw !== 'object') return null;
   const o = raw as Record<string, unknown>;
+  if (typeof o.title !== 'string' || o.title.length>80 || typeof o.description !== 'string' || o.description.length>500 || !validStringList(o.missing_details,4,140)) return null;
   const title = clip(o.title, 80), description = clip(o.description, 500);
   if (title.length < 3 || description.length < 10) return null;
   return { title, description, missing_details: strList(o.missing_details, 4, 140) };

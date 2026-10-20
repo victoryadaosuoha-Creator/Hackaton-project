@@ -1,66 +1,70 @@
-# `ai` Edge Function
+# Connected civic AI
 
-Status: **written, not yet deployed or run.** The unit tests use mocked providers and have not been executed yet. Run them before trusting this.
+Implementation follows docs/AI-SPEC.md. The Edge Function and migration 20261020000003_connected_ai.sql are deployed to the linked development project. The provider is intended to be Gemini; its API key and explicit model are not configured. Deployment is not proof of a successful model call.
 
-Every output is a **suggestion for human review**. Nothing here changes a report's status, assignment, or visibility.
+## Citizen flow
 
-## Actions
-Call with `supabase.functions.invoke('ai', { body: { action, ... } })`.
+Analyse draft sends the title/description to the server for category, summary and missing-detail suggestions. The summary is displayed for review; it does not overwrite the report. Citizens can change the category and description. Tidy my text proposes an editable rewrite with Undo. Reports can be submitted without using either AI action.
 
-| Action | Who | Input | Returns |
-|---|---|---|---|
-| `status` | anyone | none | `{ ai_available }` so the UI can show "AI unavailable" |
-| `analyze_draft` | anyone (10 per 10 min per IP) | `title?`, `description` | suggested category, short summary, missing-detail questions. **No priority** (that is for staff). |
-| `organise` | anyone (10 per 10 min per IP) | `text` (typed or voice transcript) | tidied `title` + `description` + missing-detail questions for the citizen to edit |
-| `assistant` | anyone (20 per 10 min per IP) | `messages` (last 6, 500 chars each) | plain-text help about using the app |
-| `assess_report` | staff/admin only (30 per 10 min per user) | `report_id` | stores category, summary, priority, and duplicate suggestions in `ai_assessments`; returns them with ids |
+Speak (English) uses SpeechRecognition or webkitSpeechRecognition when present. Final speech results are added to the editable description. Interim text, start/stop state, microphone errors and unsupported-browser messages are shown. Wolof and Mandinka are explicitly unverified. The application does not upload audio, but the browser's speech provider may process it. Real microphone accuracy was not tested by automated browser mocks.
 
-Staff accept, correct, or dismiss a stored suggestion with the existing `review_ai_assessment(id, outcome, corrected)` function.
+## Staff flow
 
-## Setup
-```bash
-npx supabase db push                      # applies 0002_ai_support.sql (rate limits + duplicate search)
-npx supabase secrets set AI_PROVIDER=gemini AI_API_KEY=<key> AI_MODEL=<model> \
-  ALLOWED_ORIGINS=https://your-site.example,http://localhost:5173 RATE_LIMIT_SALT=<random string>
-npx supabase functions deploy ai
-deno test supabase/functions/ai/ai_test.ts
-```
-`AI_PROVIDER` is `gemini` or `anthropic`. **Set `AI_MODEL` explicitly** and check the provider's current model list; the built-in defaults are unverified guesses. `AI_TIMEOUT_MS` is optional (3000 to 30000, default 15000).
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically by Supabase. None of these secrets may ever appear in frontend code or `VITE_` variables.
+Open a report in the staff queue. Possible duplicates load from the authenticated database API even without a model. Analyse report calls the configured provider and saves category, summary/missing details, priority and duplicate evidence as pending suggestions. Staff can confirm, dismiss or correct suggestions. Review outcomes use review_ai_assessment; they do not change the report category, institution, status or visibility, and do not merge records. A confirmed priority is stored in the assessment; there is no separate priority column on reports.
 
-## When AI is not configured
-No key means the app keeps working:
-- `status` returns `ai_available: false`.
-- `analyze_draft` and `assess_report` fall back to **keyword rules** and say `source: "rules"`. The summary stays empty. They never pretend to be AI.
-- `organise` and `assistant` return `ai_available: false`. The frontend should submit the citizen's own text unchanged.
+Duplicate matching reuses the existing SQL trigram/location method: same institution/category, within 90 days, similarity >=0.35, and same locality or approximately 2 km apart. Source and candidate permissions are both checked. Stored snapshots contain IDs/evidence, not candidate private titles/references; displayed candidates are fetched under current permissions. An empty result means no match with this method, not proof of uniqueness. Detection is deterministic SQL, not a claimed AI model.
 
-Provider timeouts, errors, or malformed output trigger the same fallback with `ai_error: true`.
+Institutional insights aggregate actual reports over 7/30/90 days. Staff are limited to their institution; admins may choose an institution or all. Counts are computed inside PostgreSQL without REST pagination limits. The provider sees aggregate categories/localities/status counts, never report titles, descriptions, identities, coordinates or internal notes. It can select highlight IDs only. The server renders all prose/numbers from real aggregates, preventing model-invented counts. Without a model the same database counts are summarised deterministically. Unresolved excludes resolved/rejected. This is a windowed report snapshot, not a claim of causation or a rise/fall over time.
 
-## What is sent to the AI provider
-Only: the report title, description, and locality name (staff analysis), the draft text (citizen analysis), the typed or transcribed text (`organise`), or the chat messages (`assistant`). Emails and phone numbers are masked first. Never sent: reporter identity, account ids, coordinates, reference codes, internal notes, photos, or other reports' text. Duplicate detection runs entirely inside the database.
-Providers may retain data under their own terms, so tell citizens in the privacy notice that drafts may be processed by a third-party AI service.
+## Civic assistant
 
-## Priority rules (transparent)
-1. Wording about immediate danger (exposed wires, fire, collapse, gas leak, contaminated water) gives **urgent**.
-2. Wording about injury, flooding, schools, clinics, children, disease, or no water/power gives at least **high**.
-3. 5 or more possibly related reports gives at least **high**; 3 to 4 gives at least **medium**.
-4. A stated duration of weeks or months gives at least **medium**.
-5. The model may suggest higher. The final suggestion is the **higher** of rules and model. It is not a promise of response time.
+The model selects up to three IDs from facts.ts. It cannot supply free-form policy answers. The server renders verified application facts and uncertainty statements; unknown IDs or malformed results fall back to verified keyword help. Facts cover the real report/account/tracking flow, six database statuses, photo limitations, voice limitations, visibility and recovery. The assistant cannot look up a reference or assert an individual report is repaired. Keep facts.ts aligned with application changes.
 
-## Duplicate detection
-SQL, not an AI model: same category and institution, last 90 days, same locality or within about 2 km, and trigram text similarity of 0.35 or more. Coordinates are stored rounded (about 1 km), so distance is approximate. Candidates are advisory. Nothing is merged or deleted.
+## HTTP actions
 
-## Safeguards
-- Report text is wrapped in `<report>` tags with angle brackets stripped, and the prompts treat it as untrusted data.
-- Model output is validated: unknown categories, priorities, and over-long strings are dropped.
-- Request size cap (8 KB), per-IP and per-user rate limits (fails closed), CORS allow-list, provider timeouts.
-- Logs record action, status, and timing only. No report text, tokens, or provider responses.
+| Action | Access | Result |
+| --- | --- | --- |
+| status | recognised public client key | provider configuration flag, not a provider health test |
+| analyze_draft | public client key, 10/10 minutes per IP | category, summary, missing details; priority kept staff-only |
+| organise | public client key, 10/10 minutes per IP | editable title/description/questions |
+| assistant | public client key, 20/10 minutes per IP | verified facts and uncertainty; no report lookup |
+| assess_report | Auth-verified active staff/admin, 30/10 minutes per user | saved reviewable suggestions and currently permitted duplicates |
+| institution_insights | Auth-verified active staff/admin, 10/10 minutes per user | authorised aggregate counts and grounded summary |
 
-## Known limitations
-- **Voice:** this function only tidies a transcript. Speech-to-text is not done server-side. Use the browser's Web Speech API (support varies by browser and language) and let the citizen edit the text. Wolof and Mandinka recognition is untested.
-- **Wolof/Mandinka replies** from the assistant are intentionally not offered until tested.
-- The civic-assistant facts live in `ASSISTANT_SYSTEM` in `index.ts`. Have your team verify them and update them when the app changes.
-- Seeded categories do not include Healthcare or Education from the AI spec. Add them in the admin portal (or seed) if wanted; the function reads categories from the database.
-- Trend summaries for institutions are not built yet.
-- The fixed-window rate limiter can allow a short burst at window edges. `ai_rate_limits` rows are never cleaned up; schedule a periodic delete for old rows.
-- `assess_report` inserts new rows on every call. Add a UI guard against repeat clicks.
+## Server configuration still required
+
+In Supabase Dashboard > Edge Functions > Secrets, configure values on the server. Do not paste keys into chat, frontend code, .env or git.
+
+- AI_PROVIDER: gemini (the runtime default, but set it explicitly).
+- AI_API_KEY: your Gemini provider key.
+- AI_MODEL: an exact model enabled for your account that supports JSON responses. No model identifier is guessed by the code.
+- RATE_LIMIT_SALT: a long randomly generated private string. Public paid/help actions fail closed until this is configured.
+- ALLOWED_ORIGINS: comma-separated exact browser origins. Default: http://localhost:5173. Add your actual development/deployed origins deliberately.
+- AI_PUBLIC_CLIENT_KEYS: your frontend sb_publishable_ key if not automatically present in the runtime's SUPABASE_PUBLISHABLE_KEYS map. This is a public client credential, not a provider/service-role secret.
+
+AI_TIMEOUT_MS is optional (3000-30000, default 15000). SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are runtime-provided. No server secrets were created or overwritten by this work; the configuration command was not approved.
+
+config.toml replaces the legacy gateway JWT parser with explicit request authentication because publishable client keys are not JWTs. Every non-preflight action checks a recognised project client key. Staff actions additionally call Auth getUser(token), then use the caller's JWT/RLS and permission-checked database APIs. No frontend-supplied role is trusted. RLS and existing grants were not weakened. See https://supabase.com/docs/guides/getting-started/migrating-to-new-api-keys and https://supabase.com/docs/reference/javascript/auth-getuser.
+
+Public IP limiting assumes trusted platform forwarding headers; validate your gateway configuration before public launch. A missing salt or failed limiter denies AI work. Existing ordinary submission/tracking abuse-control limitations are unchanged.
+
+## Response schemas and safeguards
+
+- Analysis: category is an active configured slug or null; confidence is null or finite 0-1; nonempty summary <=240 characters; at most four missing-detail questions <=140 characters; priority is low/medium/high/urgent; up to three model reasons <=140 characters. Missing/invalid fields reject the model result and use labelled rules. Conservative priority rules may raise a model suggestion; staff still decide.
+- Rewrite: title 3-80 characters, description 10-500, at most four questions <=140 characters. Invalid output leaves the original report available.
+- Assistant: fact_ids contains only known keys, maximum three; uncertain is boolean. Prose comes from verified facts, not model text.
+- Insights: model output contains at most three existing category keys and three existing area IDs. Unknown highlights are rejected. All numeric output comes from validated database aggregates.
+
+Inputs are untrusted data in system prompts and delimiters. Emails/phone-like contact details are masked before provider requests; this is not a guarantee of complete PII removal, so avoid personal details in drafts. Category labels and aggregate labels are also treated as data. Strict runtime validators are authoritative even if a provider emits JSON mode output.
+
+The request body is capped at 8 KB of UTF-8 bytes. CORS origins are checked; API/database/provider waits are bounded; limiter failures fail closed. Logs contain action/status/timing only, never report text, credentials or provider error bodies. Structured results are suggestions, not proof of truth or institutional authority. Compare summaries with the original before accepting.
+
+## Tests and verification
+
+npm run test:ai: 29 passing provider/helper/HTTP-handler tests, including invalid schemas, redaction, hostile prompts, authentication, permission revocation, duplicate errors, rate limits, provider timeouts and grounded insights. npm run test:browser -- --project demo --project live: 19 passing tests including summaries, priority correction, duplicate display, counts, editable voice, unsupported browsers and rate-limit fallback. Browser speech and provider outputs are mocked in these tests.
+
+The migration passed rollback-only tests before application, and supabase/tests/ai_security.sql passes on the applied development schema. Tests cover same-locality and nearby candidates, exclusion of distant/old/foreign candidates, exact institutional counts, citizen/staff/admin/inactive access, atomic review storage and no automatic report changes. Database lint reports no schema errors.
+
+Run npm run lint, npm test, npm run test:ai, npm run test:browser and npm run build. For database tests run npx supabase db query --linked --file supabase/tests/ai_security.sql (fixture data rolls back).
+
+Real Gemini output, real microphone transcription, and full staff-browser flows with real Auth-issued credentials still require manual verification after server setup. No provider API key has been supplied or tested. Optional extra contract tests/formatting were not added because that command was not approved; the existing passing tests remain in place.

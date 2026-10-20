@@ -39,22 +39,15 @@ Deno.test('parseJson handles code fences and surrounding prose', () => {
   assertEquals(parseJson('not json'), null);
 });
 
-Deno.test('validateAnalysis drops invented categories, bad priorities and over-long text', () => {
-  const a = validateAnalysis({
-    category: 'made_up_slug', category_confidence: 0.9, priority: 'catastrophic',
-    summary: 'x'.repeat(1000), missing_details: ['a', 'b', 'c', 'd', 'e', 'f'],
-  }, SLUGS)!;
-  assertEquals(a.category, null);
-  assertEquals(a.category_confidence, null);
-  assertEquals(a.priority, 'low');
-  assertEquals(a.summary.length, 240);
-  assertEquals(a.missing_details.length, 4);
-  assertEquals(validateAnalysis('garbage', SLUGS), null);
+Deno.test('analysis schema rejects unknown categories, priorities, oversized or incomplete output', () => {
+  const valid={category:'water_drainage',category_confidence:0.9,priority:'high',summary:'The drain is blocked.',missing_details:[],priority_reasons:['Blocked drain']};
+  assert(validateAnalysis(valid,SLUGS));
+  for(const bad of [{},{...valid,category:'made_up_slug'},{...valid,priority:'catastrophic'},{...valid,summary:'x'.repeat(241)},{...valid,missing_details:['x'.repeat(141)]},[]]) assertEquals(validateAnalysis(bad,SLUGS),null);
 });
 
 Deno.test('validateOrganised rejects empty drafts', () => {
   assertEquals(validateOrganised({ title: 'ab', description: 'short' }), null);
-  assert(validateOrganised({ title: 'Broken light', description: 'The streetlight has not worked for weeks.' }));
+  assert(validateOrganised({ title: 'Broken light', description: 'The streetlight has not worked for weeks.', missing_details: [] }));
 });
 
 Deno.test('cleanMessages keeps the last 6, starts with a user turn, clips and redacts', () => {
@@ -68,8 +61,9 @@ Deno.test('cleanMessages keeps the last 6, starts with a user turn, clips and re
 
 Deno.test('getConfig returns null without a key (AI disabled) and for unknown providers', () => {
   assertEquals(getConfig(() => undefined), null);
+  assertEquals(getConfig((k)=>k==='AI_API_KEY'?'k':undefined),null);
   assertEquals(getConfig((k) => ({ AI_API_KEY: 'k', AI_PROVIDER: 'other' } as Record<string, string>)[k]), null);
-  assertEquals(getConfig((k) => ({ AI_API_KEY: 'k' } as Record<string, string>)[k])?.provider, 'gemini');
+  assertEquals(getConfig((k) => ({ AI_API_KEY: 'k', AI_MODEL:'test-model' } as Record<string, string>)[k])?.provider, 'gemini');
 });
 
 // ---------------------------------------------------------------- mocked providers

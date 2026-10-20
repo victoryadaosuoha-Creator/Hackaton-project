@@ -1,6 +1,6 @@
 # Déglu Gambia: Supabase setup
 
-Status: migration written, **not yet run against a live project**. Run the checks below before trusting it.
+Status (20 October 2026): both baseline migrations are present in the linked development database and their migration history has been reconciled after inspection. Live read-only API checks and rollback-only anonymous/citizen/staff/admin database tests pass. See verification.md for limitations.
 
 ## 1. Create the project
 1. Create a project at supabase.com (free tier is fine for the demo).
@@ -20,7 +20,7 @@ Open the SQL editor on a **dev** database and run `supabase/tests/security_check
 | `VITE_SUPABASE_URL` | frontend | yes |
 | `VITE_SUPABASE_ANON_KEY` (publishable key) | frontend | yes, safe only because RLS is on |
 | `SUPABASE_SERVICE_ROLE_KEY` | Edge Functions only | **never** in frontend or git |
-| `AI_PROVIDER_API_KEY` | Edge Function secret (`npx supabase secrets set ...`) | **never** in frontend or git |
+| `AI_API_KEY` | Edge Function secret (`npx supabase secrets set ...`) | **never** in frontend or git |
 
 Without Supabase variables the frontend must show demo mode. Without the AI key it must show "AI unavailable".
 
@@ -66,8 +66,18 @@ Not built yet: `incidents` (duplicate grouping), `notifications`, `report_attach
 - **Rate limiting and CAPTCHA are not implemented.** `submit_report` is callable by anyone with the anon key. Put an Edge Function with rate limiting in front of it before any public launch; do not claim abuse controls until configured and tested.
 - Reference space is about 887 million codes. Brute-force guessing is impractical but still needs rate limiting on `track_report`.
 - Citizens cannot edit a report after submission (deliberate for the MVP).
-- Staff tests with real users (isolation between institutions, citizen cannot see others' reports, role escalation) are not written yet.
+- Role-isolation tests now exist in supabase/tests/role_isolation.sql and pass using transaction-scoped auth user fixtures and trusted SQL JWT-claim simulation. Real Auth-issued JWTs and email delivery still need a manual smoke check.
 - Dev passwords, backups, and retention policy are not configured.
 
-## Next tests (need real auth users)
+## Manual authentication smoke check
 Create two staff users in different institutions plus two citizens, then verify with their JWTs through the REST API: cross-institution status change is rejected, citizen A cannot read citizen B's report, a citizen updating their own `role` fails, and `resolved` without a note is rejected.
+
+## Recovering manually applied migrations
+
+The linked project originally had an empty supabase_migrations.schema_migrations table while both complete schemas were already present. All 22 function bodies matched exactly, and enums, tables/columns, RLS policies and triggers were inspected before changing history. The anonymous and role-isolation tests passed with all fixture changes rolled back. The following reversible bookkeeping operation was completed:
+
+```bash
+npx supabase migration repair --status applied 20261020000001 20261020000002
+```
+
+This marks existing SQL as applied; it does not execute the migration SQL or recreate objects. Check migration list and db push --dry-run afterward. On a different project, inspect the schema first; do not mark incomplete migrations applied. Supabase documents this workflow at https://supabase.com/docs/guides/deployment/database-migrations.

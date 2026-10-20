@@ -3,10 +3,10 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2.49.1';
 import { createHandler, clientKeyAllowed } from './handler.ts';
 import { complete, ProviderError } from './provider.ts';
 import { FACTS, selectFacts } from './facts.ts';
-import { validInsights, validateHighlights } from './insights.ts';
+import { type InsightData, validInsights, validateHighlights } from './insights.ts';
 const ID='00000000-0000-4000-8000-000000000001', AREA='00000000-0000-4000-8000-000000000002';
 const analysis={category:'water_drainage',category_confidence:0.9,summary:'Drain blocked near the market.',missing_details:['How long has it been blocked?'],priority:'high',priority_reasons:['Open drain']};
-const insightData={institution_id:ID,days:30,window_start:'2026-10-01T00:00:00Z',window_end:'2026-10-20T00:00:00Z',total:3,unresolved:2,by_status:{submitted:2,resolved:1},categories:[{key:'water_drainage',label:'Water & Drainage',count:3,unresolved:2}],areas:[{id:AREA,label:'Brikama',count:3,unresolved:2}]};
+const insightData:InsightData={institution_id:ID,days:30,window_start:'2026-10-01T00:00:00Z',window_end:'2026-10-20T00:00:00Z',total:3,unresolved:2,by_status:{submitted:2,resolved:1},categories:[{key:'water_drainage',label:'Water & Drainage',count:3,unresolved:2}],areas:[{id:AREA,label:'Brikama',count:3,unresolved:2}]};
 function fixture(overrides:Record<string,string|undefined>={}) {
   const environment:Record<string,string|undefined>={SUPABASE_ANON_KEY:'public-test',RATE_LIMIT_SALT:'test-salt',AI_API_KEY:'test-provider-secret',AI_MODEL:'test-model',AI_PROVIDER:'gemini',ALLOWED_ORIGINS:'http://localhost:5173',...overrides};
   const state={permission:true,authenticated:true,limited:false,limitError:false,duplicateError:false,saveDenied:false,insightDenied:false,categoryError:false,rows:[] as unknown[],calls:[] as {mode:string;name:string;args:unknown}[],completions:[] as {system:string;messages:unknown}[],output:null as string|null,providerError:false,data:structuredClone(insightData)};

@@ -8,17 +8,17 @@ export class ProviderError extends Error {
   constructor(public code: string) { super(code); }
 }
 
-// Defaults are suggestions. Set AI_MODEL explicitly and check the provider's current model list.
-const DEFAULT_MODEL = { gemini: 'gemini-2.5-flash', anthropic: 'claude-haiku-5-5' } as const;
+// Set AI_MODEL explicitly; never guess a provider model identifier.
 
 /** Returns null when AI is not configured. The app must then keep working without AI. */
 export function getConfig(env: (k: string) => string | undefined): ProviderConfig | null {
   const apiKey = env('AI_API_KEY')?.trim();
-  if (!apiKey) return null;
+  const model = env('AI_MODEL')?.trim();
+  if (!apiKey || !model) return null;
   const provider = (env('AI_PROVIDER') ?? 'gemini').toLowerCase();
   if (provider !== 'gemini' && provider !== 'anthropic') return null;
   const timeoutMs = Math.min(Math.max(Number(env('AI_TIMEOUT_MS')) || 15000, 3000), 30000);
-  return { provider, apiKey, model: env('AI_MODEL')?.trim() || DEFAULT_MODEL[provider], timeoutMs };
+  return { provider, apiKey, model, timeoutMs };
 }
 
 export async function complete(
