@@ -1,0 +1,7 @@
+project_id = "deglu-gambia"
+
+# Public draft/help actions accept a recognised client key; staff actions ALSO verify
+# the user JWT with Supabase Auth and enforce database permissions inside handler.ts.
+# The legacy gateway JWT parser cannot authenticate sb_publishable_ client keys.
+[functions.ai]
+verify_jwt = false

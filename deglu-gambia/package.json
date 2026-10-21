@@ -1,0 +1,34 @@
+{
+  "name": "deglu-gambia",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test:ai": "deno test --node-modules-dir=none supabase/functions/ai/",
+    "lint": "eslint src scripts tests *.js",
+    "test": "node --test tests/unit.test.js",
+    "test:browser": "playwright test",
+    "check:db": "node scripts/check-db.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.64.1",
+    "deno": "^2.9.6",
+    "eslint": "^10.13.0",
+    "globals": "^17.13.0",
+    "vite": "^7.3.7"
+  },
+  "allowScripts": {
+    "deno@2.9.6": true,
+    "esbuild@0.28.2": true
+  },
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  }
+}
